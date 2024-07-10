@@ -13,28 +13,23 @@ bodyParserXml(bodyParser);
 // Middleware
 app.use(bodyParser.json());
 app.use(bodyParser.xml({
-    limit: '1MB',   // Reject payload bigger than 1 MB
     xmlParseOptions: {
-        normalize: true,     // Trim whitespace inside text nodes
-        normalizeTags: true, // Transform tags to lowercase
-        explicitArray: false // Only put properties in array if length > 1
+        normalize: true,
+        normalizeTags: true,
+        explicitArray: false
     }
 }));
 
-// Helper function to parse incoming request body based on Content-Type
-function parseRequestBody(req, res, next) {
+const parseRequestBody = (req, res, next) => {
     const contentType = req.headers['content-type'];
     if (contentType && contentType.includes('xml')) {
-        // XML parsing is already handled by body-parser-xml
         next();
     } else {
-        // Default to JSON parsing
         bodyParser.json()(req, res, next);
     }
-}
+};
 
-// Helper function to format response based on Accept header
-function formatResponse(req, res, next) {
+const formatResponse = (req, res, next) => {
     res.format({
         'application/json': () => {
             res.json(res.locals.responseBody);
@@ -44,11 +39,10 @@ function formatResponse(req, res, next) {
             res.type('application/xml').send(xml);
         },
         'default': () => {
-            // Default to JSON if Accept header is not set or not recognized
             res.json(res.locals.responseBody);
         }
     });
-}
+};
 
 // Logging middleware for incoming requests
 app.use((req, res, next) => {
@@ -76,7 +70,7 @@ app.use((err, req, res, next) => {
         res.locals.responseBody = errorResponse;
         return formatResponse(req, res, next);
     }
-    next(err); // Pass the error to the default error handler
+    next(err);
 });
 
 // Logging middleware for outgoing responses
@@ -87,7 +81,7 @@ app.use((req, res, next) => {
             type: 'messageOut',
             body: JSON.stringify(body),
             dateTime: new Date().toISOString(),
-            fault: body.code >= 400 ? (body.fault || 'No error occurred') : undefined // Set 'fault' only for error responses
+            fault: body.code >= 400 ? (body.fault || 'No error occurred') : undefined
         };
         console.log('Outgoing response:', logEntryOut);
         originalJson.call(this, body);
@@ -95,12 +89,9 @@ app.use((req, res, next) => {
     next();
 });
 
-// Search endpoint
 app.post('/search', parseRequestBody, (req, res, next) => {
-    let { query, page = 1 } = req.body;
-
-    // Validate inputs
-    let errorMessages = [];
+    const { query, page = 1 } = req.body;
+    const errorMessages = [];
 
     if (typeof query !== 'string') {
         errorMessages.push('Query must be a string.');
@@ -114,7 +105,6 @@ app.post('/search', parseRequestBody, (req, res, next) => {
         errorMessages.push('Page must be greater than or equal to 1.');
     }
 
-    // If there are validation errors, return a 400 response with the errors
     if (errorMessages.length > 0) {
         const errorResponse = {
             code: 400,
@@ -130,17 +120,14 @@ app.post('/search', parseRequestBody, (req, res, next) => {
 
     https.get(`https://dummyjson.com/products/search?q=${query}&limit=${pageSize}&skip=${skip}`, (response) => {
         let data = '';
-        // A chunk of data has been received.
+
         response.on('data', (chunk) => {
             data += chunk;
         });
 
-        // The whole response has been received.
         response.on('end', () => {
             try {
                 const products = JSON.parse(data).products;
-
-                // Transform data
                 const transformedProducts = products.map(product => {
                     const discount = product.price * (product.discountPercentage / 100);
                     const finalPrice = (product.price - discount).toFixed(2);
@@ -179,7 +166,6 @@ app.post('/search', parseRequestBody, (req, res, next) => {
     });
 });
 
-// Start the server
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}/`);
 });
