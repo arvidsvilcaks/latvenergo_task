@@ -1,12 +1,54 @@
 const express = require('express');
 const bodyParser = require('body-parser');
+const bodyParserXml = require('body-parser-xml');
+const js2xmlparser = require('js2xmlparser');
 const https = require('https');
 
 const app = express();
 const port = 3055;
 
+// Initialize XML body parser
+bodyParserXml(bodyParser);
+
 // Middleware
 app.use(bodyParser.json());
+app.use(bodyParser.xml({
+    limit: '1MB',   // Reject payload bigger than 1 MB
+    xmlParseOptions: {
+        normalize: true,     // Trim whitespace inside text nodes
+        normalizeTags: true, // Transform tags to lowercase
+        explicitArray: false // Only put properties in array if length > 1
+    }
+}));
+
+// Helper function to parse incoming request body based on Content-Type
+function parseRequestBody(req, res, next) {
+    const contentType = req.headers['content-type'];
+    if (contentType && contentType.includes('xml')) {
+        // XML parsing is already handled by body-parser-xml
+        next();
+    } else {
+        // Default to JSON parsing
+        bodyParser.json()(req, res, next);
+    }
+}
+
+// Helper function to format response based on Accept header
+function formatResponse(req, res, next) {
+    res.format({
+        'application/json': () => {
+            res.json(res.locals.responseBody);
+        },
+        'application/xml': () => {
+            const xml = js2xmlparser.parse("response", res.locals.responseBody);
+            res.type('application/xml').send(xml);
+        },
+        'default': () => {
+            // Default to JSON if Accept header is not set or not recognized
+            res.json(res.locals.responseBody);
+        }
+    });
+}
 
 // Logging middleware for incoming requests
 app.use((req, res, next) => {
@@ -31,7 +73,8 @@ app.use((err, req, res, next) => {
             fault: err.stack || 'No stack trace available'
         };
         console.log('Error response:', errorResponse);
-        return res.status(400).json(errorResponse);
+        res.locals.responseBody = errorResponse;
+        return formatResponse(req, res, next);
     }
     next(err); // Pass the error to the default error handler
 });
@@ -53,8 +96,8 @@ app.use((req, res, next) => {
 });
 
 // Search endpoint
-app.post('/search', (req, res) => {
-    const { query, page = 1 } = req.body;
+app.post('/search', parseRequestBody, (req, res, next) => {
+    let { query, page = 1 } = req.body;
 
     // Validate inputs
     let errorMessages = [];
@@ -78,7 +121,8 @@ app.post('/search', (req, res) => {
             message: errorMessages.join(' ')
         };
         console.log('Validation error response:', errorResponse);
-        return res.status(400).json(errorResponse);
+        res.locals.responseBody = errorResponse;
+        return formatResponse(req, res, next);
     }
 
     const pageSize = 2;
@@ -107,12 +151,8 @@ app.post('/search', (req, res) => {
                     };
                 });
 
-                const responseObj = {
-                    type: 'messageOut',
-                    body: transformedProducts,
-                    dateTime: new Date().toISOString()
-                };
-                res.json(responseObj);
+                res.locals.responseBody = transformedProducts;
+                formatResponse(req, res, next);
             } catch (error) {
                 console.error('Error parsing response:', error);
                 const errorResponse = {
@@ -121,7 +161,8 @@ app.post('/search', (req, res) => {
                     fault: error.stack || 'No stack trace available'
                 };
                 console.log('Error response:', errorResponse);
-                res.status(500).json(errorResponse);
+                res.locals.responseBody = errorResponse;
+                formatResponse(req, res, next);
             }
         });
 
@@ -133,7 +174,8 @@ app.post('/search', (req, res) => {
             fault: err.stack || 'No stack trace available'
         };
         console.log('Error response:', errorResponse);
-        res.status(500).json(errorResponse);
+        res.locals.responseBody = errorResponse;
+        formatResponse(req, res, next);
     });
 });
 
